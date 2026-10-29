@@ -1,10 +1,10 @@
 import os
 import sqlite3
 from datetime import datetime, timedelta
-from flask import Flask, render_template_string, request, redirect, url_for, session, jsonify, flash
+from flask import Flask, render_template_string, request, redirect, url_for, session, flash
 
 app = Flask(__name__)
-app.secret_key = "annadaan_secure_secret_key_2026"
+app.secret_key = "annadaan_secure_key_slrtce_2026"
 DATABASE = "annadaan.db"
 
 def get_db():
@@ -24,7 +24,8 @@ def init_db():
             role TEXT NOT NULL, -- 'DONOR', 'NGO', 'ADMIN'
             organization_name TEXT NOT NULL,
             contact_number TEXT NOT NULL,
-            address TEXT NOT NULL
+            address TEXT NOT NULL,
+            area TEXT NOT NULL
         )
     ''')
     # Food donations table
@@ -47,41 +48,46 @@ def init_db():
     ''')
     conn.commit()
     
-    # Pre-seed demo users if empty
+    # Pre-seed initial establishments if database is fresh
     cursor.execute("SELECT COUNT(*) FROM users")
     if cursor.fetchone()[0] == 0:
         demo_users = [
-            ("taj_banquets", "pass123", "DONOR", "Grand Celebrations Banquet Hall", "9820011223", "Mira Road East, Thane"),
-            ("sunrise_society", "pass123", "DONOR", "Sunrise Cooperative Housing Society", "9820044556", "Kandivali West, Mumbai"),
-            ("sneha_ashram", "pass123", "NGO", "Sneha Children Care & Shelter", "9819977889", "Dahisar East, Mumbai"),
-            ("rotary_relief", "pass123", "NGO", "Rotary Community Food Kitchen", "9833322110", "Bhayandar West, Thane"),
-            ("admin", "admin123", "ADMIN", "Annadaan Central Oversight", "02228120144", "Thane Regional Desk")
+            ("taj_banquets", "pass123", "DONOR", "Grand Celebrations Banquet Hall", "9820011223", "Western Express Highway", "Mira Road East"),
+            ("sunrise_society", "pass123", "DONOR", "Sunrise CHS Clubhouse", "9820044556", "Mahavir Nagar", "Kandivali West"),
+            ("gupta_catering", "pass123", "DONOR", "Gupta Caterers & Events", "9821133445", "Station Road", "Bhayandar West"),
+            ("sneha_ashram", "pass123", "NGO", "Sneha Children Care Shelter", "9819977889", "Near Datta Mandir", "Dahisar East"),
+            ("rotary_relief", "pass123", "NGO", "Rotary Community Kitchen", "9833322110", "Maxus Mall Lane", "Bhayandar West"),
+            ("admin", "admin123", "ADMIN", "Annadaan Central Oversight Desk", "02228120144", "College Road", "Mira Road East")
         ]
         cursor.executemany(
-            "INSERT INTO users (username, password, role, organization_name, contact_number, address) VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO users (username, password, role, organization_name, contact_number, address, area) VALUES (?, ?, ?, ?, ?, ?, ?)",
             demo_users
         )
-        # Pre-seed sample donation listings
+        
+        # Pre-seed sample active listings
         now = datetime.now()
-        exp1 = (now + timedelta(hours=4)).strftime("%Y-%m-%d %H:%M")
-        exp2 = (now + timedelta(hours=2)).strftime("%Y-%m-%d %H:%M")
+        exp1 = (now + timedelta(hours=4)).strftime("%I:%M %p")
+        exp2 = (now + timedelta(hours=2)).strftime("%I:%M %p")
         cursor.execute('''
             INSERT INTO food_donations (donor_id, food_item_name, food_type, quantity_plates, prepared_time, expiry_time, pickup_address, status)
             VALUES 
-            (1, 'Vegetable Biryani & Dal Makhani', 'Cooked Meal', 85, 'Today, 1:30 PM', ?, 'Grand Banquet Hall, Western Express Hwy, Mira Road', 'AVAILABLE'),
-            (2, 'Assorted Roti, Paneer Sabzi, Rice', 'Cooked Meal', 40, 'Today, 2:00 PM', ?, 'Sunrise Society Club House, Kandivali West', 'AVAILABLE')
+            (1, 'Vegetable Biryani & Dal Makhani', 'Cooked Meal', 85, 'Today, 1:30 PM', ?, 'Grand Banquet Hall, Western Express Hwy, Mira Road East', 'AVAILABLE'),
+            (2, 'Assorted Roti, Paneer Sabzi, Jeera Rice', 'Cooked Meal', 40, 'Today, 2:00 PM', ?, 'Sunrise Society Clubhouse, Kandivali West', 'AVAILABLE')
         ''', (exp1, exp2))
         conn.commit()
     conn.close()
 
-# HTML template with modern clean styling
+# Auto-initialize database on server launch
+init_db()
+
+# --- HTML TEMPLATES ---
 BASE_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Annadaan | Smart Surplus Food Redistribution</title>
+    <title>Annadaan | Surplus Food Redistribution Network</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
 </head>
@@ -90,16 +96,16 @@ BASE_TEMPLATE = """
         <div class="max-w-7xl mx-auto px-6 py-4 flex justify-between items-center">
             <div class="flex items-center space-x-3">
                 <i class="fa-solid fa-hand-holding-heart text-2xl text-emerald-200"></i>
-                <span class="text-xl font-bold tracking-tight">Annadaan Network</span>
-                <span class="text-xs bg-emerald-800 text-emerald-200 px-2 py-0.5 rounded-full font-mono">PS10</span>
+                <a href="{{ url_for('dashboard') }}" class="text-xl font-bold tracking-tight">Annadaan</a>
+                <span class="text-xs bg-emerald-800 text-emerald-200 px-2.5 py-0.5 rounded-full font-mono">PS10</span>
             </div>
             <div class="flex items-center space-x-6 text-sm font-medium">
+                <a href="{{ url_for('dashboard') }}" class="hover:text-emerald-200">Surplus Listings</a>
                 {% if session.get('user_id') %}
-                    <span class="text-emerald-100"><i class="fa-regular fa-user mr-1.5"></i>{{ session.get('org_name') }} ({{ session.get('role') }})</span>
-                    <a href="{{ url_for('dashboard') }}" class="hover:text-emerald-200">Dashboard</a>
-                    <a href="{{ url_for('logout') }}" class="bg-emerald-800 hover:bg-emerald-900 px-3 py-1.5 rounded-md transition">Logout</a>
+                    <span class="text-emerald-100 hidden sm:inline"><i class="fa-regular fa-building mr-1.5"></i>{{ session.get('org_name') }}</span>
+                    <a href="{{ url_for('logout') }}" class="bg-emerald-800 hover:bg-emerald-900 px-3.5 py-1.5 rounded-md transition">Logout</a>
                 {% else %}
-                    <a href="{{ url_for('login') }}" class="bg-white text-emerald-800 hover:bg-emerald-50 px-4 py-1.5 rounded-md font-semibold transition">Login / Demo</a>
+                    <a href="{{ url_for('login') }}" class="bg-white text-emerald-800 hover:bg-emerald-50 px-4 py-1.5 rounded-md font-semibold transition">Partner Login</a>
                 {% endif %}
             </div>
         </div>
@@ -131,9 +137,9 @@ INDEX_VIEW = BASE_TEMPLATE.replace("{% block content %}{% endblock %}", """
     <div class="bg-gradient-to-r from-emerald-800 to-teal-700 text-white rounded-2xl p-8 shadow-lg flex flex-col md:flex-row justify-between items-center gap-6">
         <div class="space-y-3 max-w-2xl">
             <span class="bg-emerald-600/80 text-emerald-100 text-xs uppercase tracking-wider font-semibold px-3 py-1 rounded-full">Surplus Food Management</span>
-            <h1 class="text-3xl font-extrabold tracking-tight">Bridging Urban Food Waste & Community Need</h1>
+            <h1 class="text-3xl font-extrabold tracking-tight">Connecting Food Donors with Community Shelters</h1>
             <p class="text-emerald-100 text-sm leading-relaxed">
-                A digital coordination platform that enables caterers, restaurants, and residential housing societies to post unserved edible food directly to verified local shelters before expiry.
+                Empowering banquet halls, restaurants, caterers, and housing societies across Mira-Bhayandar & Mumbai to redistribute safe, unconsumed edible food to verified orphanages and shelters before expiry.
             </p>
         </div>
         <div class="grid grid-cols-2 gap-4 text-center w-full md:w-auto">
@@ -155,12 +161,12 @@ INDEX_VIEW = BASE_TEMPLATE.replace("{% block content %}{% endblock %}", """
         </h2>
         <form action="{{ url_for('create_donation') }}" method="POST" class="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
             <div>
-                <label class="block text-slate-700 font-semibold mb-1">Item Title / Menu Description</label>
+                <label class="block text-slate-700 font-semibold mb-1">Item Title / Food Description</label>
                 <input type="text" name="food_item" placeholder="e.g. Rice, Dal & Mix Vegetable Curry" required class="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-emerald-500 outline-none">
             </div>
             <div>
                 <label class="block text-slate-700 font-semibold mb-1">Category</label>
-                <select name="food_type" class="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-emerald-500 outline-none">
+                <select name="food_type" class="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-emerald-500 outline-none bg-white">
                     <option value="Cooked Meal">Cooked Meal (Perishable)</option>
                     <option value="Bakery/Dry">Bakery / Dry Snacks</option>
                     <option value="Raw Produce">Fresh Raw Produce / Fruits</option>
@@ -193,7 +199,7 @@ INDEX_VIEW = BASE_TEMPLATE.replace("{% block content %}{% endblock %}", """
 
     <div>
         <div class="flex justify-between items-center mb-4">
-            <h2 class="text-xl font-bold text-slate-900">Current Surplus Listings</h2>
+            <h2 class="text-xl font-bold text-slate-900">Current Surplus Food Listings</h2>
             <span class="text-xs text-slate-500">Auto-prioritized by consumption expiry</span>
         </div>
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -207,10 +213,10 @@ INDEX_VIEW = BASE_TEMPLATE.replace("{% block content %}{% endblock %}", """
                         <span class="text-xs text-slate-500"><i class="fa-regular fa-clock mr-1"></i>Exp: {{ item.expiry_time }}</span>
                     </div>
                     <h3 class="font-bold text-slate-900 text-base leading-snug">{{ item.food_item_name }}</h3>
-                    <p class="text-xs text-slate-500 mt-1 mb-3">By: <strong>{{ item.organization_name }}</strong> ({{ item.food_type }})</p>
+                    <p class="text-xs text-slate-500 mt-1 mb-3">Donor: <strong>{{ item.organization_name }}</strong> ({{ item.area }})</p>
                     <div class="bg-slate-50 rounded-lg p-3 text-xs space-y-1 text-slate-600 mb-4 border border-slate-100">
                         <div><strong>Quantity:</strong> {{ item.quantity_plates }} Servings / Plates</div>
-                        <div><strong>Prep Log:</strong> {{ item.prepared_time }}</div>
+                        <div><strong>Category:</strong> {{ item.food_type }}</div>
                         <div><strong>Pickup Point:</strong> {{ item.pickup_address }}</div>
                     </div>
                 </div>
@@ -241,66 +247,171 @@ INDEX_VIEW = BASE_TEMPLATE.replace("{% block content %}{% endblock %}", """
 """)
 
 LOGIN_VIEW = BASE_TEMPLATE.replace("{% block content %}{% endblock %}", """
-<div class="max-w-md mx-auto bg-white rounded-2xl shadow-sm border border-slate-200 p-8">
-    <div class="text-center mb-6">
-        <h2 class="text-2xl font-bold text-slate-900">Sign in to Annadaan</h2>
-        <p class="text-xs text-slate-500 mt-1">Select any pre-configured persona below for quick academic evaluation</p>
-    </div>
-    
-    <div class="space-y-3 mb-6">
-        <div class="text-xs font-bold uppercase tracking-wider text-slate-400 text-center">Fast Demo Logins</div>
-        <div class="grid grid-cols-2 gap-2 text-xs">
-            <a href="{{ url_for('demo_login', user='donor') }}" class="p-2.5 bg-slate-100 hover:bg-emerald-50 hover:text-emerald-700 rounded-lg text-center font-medium border border-slate-200 transition">
-                <i class="fa-solid fa-utensils block mb-1"></i> As Banquet Donor
-            </a>
-            <a href="{{ url_for('demo_login', user='ngo') }}" class="p-2.5 bg-slate-100 hover:bg-emerald-50 hover:text-emerald-700 rounded-lg text-center font-medium border border-slate-200 transition">
-                <i class="fa-solid fa-hands-holding-child block mb-1"></i> As Shelter NGO
-            </a>
-        </div>
+<div class="max-w-5xl mx-auto space-y-6">
+    <div class="bg-gradient-to-r from-emerald-800 to-teal-700 text-white rounded-2xl p-6 shadow-sm">
+        <h2 class="text-2xl font-bold">Community Partner Portal</h2>
+        <p class="text-emerald-100 text-xs mt-1">Select your organization to manage surplus food batches, or register a new donor / NGO profile.</p>
     </div>
 
-    <form method="POST" action="{{ url_for('login') }}" class="space-y-4 text-sm">
-        <div>
-            <label class="block text-slate-700 font-semibold mb-1">Username</label>
-            <input type="text" name="username" required class="w-full border rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-emerald-500">
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
+        <!-- Card 1: Fast Login (Choose Organization) -->
+        <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 space-y-5">
+            <h3 class="text-lg font-bold text-slate-900 border-b pb-2">Login to My Organization</h3>
+            
+            <form method="POST" action="{{ url_for('select_login') }}" class="space-y-4 text-sm">
+                <div>
+                    <label class="block text-slate-700 font-semibold mb-1">Select registered entity</label>
+                    <select name="selected_user_id" required class="w-full border rounded-lg px-3 py-2.5 outline-none focus:ring-2 focus:ring-emerald-500 bg-white">
+                        <option value="">-- Choose your entity --</option>
+                        <optgroup label="Food Donors (Banquets / Caterers / Societies)">
+                            {% for u in donors %}
+                                <option value="{{ u.id }}">{{ u.organization_name }} ({{ u.area }})</option>
+                            {% endfor %}
+                        </optgroup>
+                        <optgroup label="Relief Shelters / Food NGOs">
+                            {% for u in ngos %}
+                                <option value="{{ u.id }}">{{ u.organization_name }} ({{ u.area }})</option>
+                            {% endfor %}
+                        </optgroup>
+                    </select>
+                </div>
+                <button type="submit" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-2.5 rounded-lg transition">
+                    Open Dashboard
+                </button>
+            </form>
+
+            <div class="pt-4 border-t text-xs text-slate-400">
+                Evaluation Demo: Instant login without remembering passwords.
+            </div>
         </div>
-        <div>
-            <label class="block text-slate-700 font-semibold mb-1">Password</label>
-            <input type="password" name="password" required class="w-full border rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-emerald-500">
+
+        <!-- Card 2: Register New Entity -->
+        <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 space-y-4">
+            <h3 class="text-lg font-bold text-slate-900 border-b pb-2">Register a New Partner</h3>
+            
+            <form method="POST" action="{{ url_for('register') }}" class="space-y-3 text-sm">
+                <div>
+                    <label class="block text-slate-700 font-semibold mb-1">Organization / Entity Name</label>
+                    <input type="text" name="org_name" placeholder="e.g. Royal Caterers / Shanti Niketan CHS" required class="w-full border rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-emerald-500">
+                </div>
+                <div>
+                    <label class="block text-slate-700 font-semibold mb-1">Role / Account Type</label>
+                    <select name="role" required class="w-full border rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-emerald-500 bg-white">
+                        <option value="DONOR">Food Donor (Restaurant / Caterer / Society)</option>
+                        <option value="NGO">Beneficiary / Shelter / Food NGO</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-slate-700 font-semibold mb-1">Phone Number</label>
+                    <input type="tel" name="phone" placeholder="10-digit mobile number" required class="w-full border rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-emerald-500">
+                </div>
+                <div>
+                    <label class="block text-slate-700 font-semibold mb-1">Area / Locality</label>
+                    <select name="area" class="w-full border rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-emerald-500 bg-white">
+                        <option value="Mira Road East">Mira Road East</option>
+                        <option value="Bhayandar East">Bhayandar East</option>
+                        <option value="Bhayandar West">Bhayandar West</option>
+                        <option value="Dahisar East">Dahisar East</option>
+                        <option value="Borivali West">Borivali West</option>
+                        <option value="Kandivali West">Kandivali West</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-slate-700 font-semibold mb-1">Address / Landmark</label>
+                    <input type="text" name="address" placeholder="e.g. Opposite Silver Park, Mira Road" required class="w-full border rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-emerald-500">
+                </div>
+                <button type="submit" class="w-full bg-slate-800 hover:bg-slate-900 text-white font-semibold py-2.5 rounded-lg transition mt-2">
+                    Register & Go to Dashboard
+                </button>
+            </form>
         </div>
-        <button type="submit" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-2.5 rounded-lg transition">
-            Access Portal
-        </button>
-    </form>
+    </div>
 </div>
 """)
 
+# --- ROUTES ---
 @app.route("/")
 def dashboard():
     conn = get_db()
     cursor = conn.cursor()
     cursor.execute('''
-        SELECT d.*, u.organization_name, u.contact_number 
+        SELECT d.*, u.organization_name, u.contact_number, u.area 
         FROM food_donations d 
         JOIN users u ON d.donor_id = u.id 
         ORDER BY d.id DESC
     ''')
     donations = cursor.fetchall()
     
-    # Calculate impact stats
     cursor.execute("SELECT SUM(quantity_plates) FROM food_donations WHERE status IN ('CLAIMED', 'DELIVERED')")
     row = cursor.fetchone()
-    total_meals = row[0] if row[0] else 0
-    # Average ~0.42 kg CO2 equivalent saved per food serving diverted from landfill
+    total_meals = row[0] if (row and row[0]) else 0
     total_co2 = round(total_meals * 0.42, 1)
     conn.close()
     
     return render_template_string(INDEX_VIEW, donations=donations, total_meals=total_meals, total_co2=total_co2)
 
+@app.route("/login", methods=["GET"])
+def login():
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, organization_name, area FROM users WHERE role = 'DONOR'")
+    donors = cursor.fetchall()
+    cursor.execute("SELECT id, organization_name, area FROM users WHERE role = 'NGO'")
+    ngos = cursor.fetchall()
+    conn.close()
+    return render_template_string(LOGIN_VIEW, donors=donors, ngos=ngos)
+
+@app.route("/select-login", methods=["POST"])
+def select_login():
+    user_id = request.form.get("selected_user_id")
+    if not user_id:
+        flash("Please select an organization", "error")
+        return redirect(url_for("login"))
+    
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM users WHERE id = ?", (user_id,))
+    user = cursor.fetchone()
+    conn.close()
+    
+    if user:
+        session["user_id"] = user["id"]
+        session["username"] = user["username"]
+        session["role"] = user["role"]
+        session["org_name"] = user["organization_name"]
+        flash(f"Signed in as {user['organization_name']}", "success")
+    return redirect(url_for("dashboard"))
+
+@app.route("/register", methods=["POST"])
+def register():
+    org_name = request.form.get("org_name")
+    role = request.form.get("role")
+    phone = request.form.get("phone")
+    area = request.form.get("area")
+    address = request.form.get("address")
+    username = org_name.lower().replace(" ", "_")[:20] + f"_{datetime.now().strftime('%S')}"
+    
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute('''
+        INSERT INTO users (username, password, role, organization_name, contact_number, address, area)
+        VALUES (?, 'pass123', ?, ?, ?, ?, ?)
+    ''', (username, role, org_name, phone, address, area))
+    new_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    
+    session["user_id"] = new_id
+    session["username"] = username
+    session["role"] = role
+    session["org_name"] = org_name
+    flash(f"Welcome {org_name}! Account created and verified.", "success")
+    return redirect(url_for("dashboard"))
+
 @app.route("/create-donation", methods=["POST"])
 def create_donation():
     if session.get("role") != "DONOR":
-        flash("Unauthorized action", "error")
+        flash("Only registered food donors can publish listings", "error")
         return redirect(url_for("dashboard"))
     
     food_item = request.form.get("food_item")
@@ -343,49 +454,14 @@ def complete_donation(item_id):
     cursor.execute("UPDATE food_donations SET status = 'DELIVERED' WHERE id = ?", (item_id,))
     conn.commit()
     conn.close()
-    flash("Food handoff verified and logged to environmental audit ledger.", "success")
-    return redirect(url_for("dashboard"))
-
-@app.route("/login", methods=["GET", "POST"])
-def login():
-    if request.method == "POST":
-        u = request.form.get("username")
-        p = request.form.get("password")
-        conn = get_db()
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM users WHERE username = ? AND password = ?", (u, p))
-        user = cursor.fetchone()
-        conn.close()
-        if user:
-            session["user_id"] = user["id"]
-            session["username"] = user["username"]
-            session["role"] = user["role"]
-            session["org_name"] = user["organization_name"]
-            return redirect(url_for("dashboard"))
-        else:
-            flash("Invalid credentials", "error")
-    return render_template_string(LOGIN_VIEW)
-
-@app.route("/demo-login/<user>")
-def demo_login(user):
-    target = "taj_banquets" if user == "donor" else "sneha_ashram"
-    conn = get_db()
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM users WHERE username = ?", (target,))
-    u = cursor.fetchone()
-    conn.close()
-    if u:
-        session["user_id"] = u["id"]
-        session["username"] = u["username"]
-        session["role"] = u["role"]
-        session["org_name"] = u["organization_name"]
+    flash("Handoff verified and recorded to environmental audit ledger.", "success")
     return redirect(url_for("dashboard"))
 
 @app.route("/logout")
 def logout():
     session.clear()
+    flash("Logged out successfully.", "success")
     return redirect(url_for("dashboard"))
 
 if __name__ == "__main__":
-    init_db()
     app.run(debug=True, port=5000)
